@@ -1,143 +1,90 @@
-# Can an Art-Style Classifier Trained on WikiArt Recognize Museum Photos?
+Can an Art-Style Classifier Trained on WikiArt Recognize Museum Images?
+Author: Abdullahi Jimale
+Course: CIS 631, Minnesota State University, Mankato, Fall 2026
+Instructor: Dr. Suboh Alkhushayni
+Overview
+Art-style classifiers are usually trained on WikiArt. Museums and art applications may want to use these models on their own collections, but images from different sources can vary in digitization, color, and framing. These differences may affect how well a model recognizes art styles. This project measures that performance gap and tests whether fine-tuning with a small number of museum images improves results at another museum.
 
-**Author:** Abdullahi Jimale
-**Course:** CIS 631, Minnesota State University, Mankato (Fall 2026)
-**Instructor:** Dr. Suboh Alkhushayni
+The study focuses on collection digitizations from the Metropolitan Museum of Art (the Met) and the Rijksmuseum. It does not test photographs taken inside galleries.
+Research Questions
+1. How much does performance change when a WikiArt-trained model is tested on images from the Met and the Rijksmuseum?
+2. Does fine-tuning on a small number of images from one museum improve performance at the other museum?
+Data Sources
+Dataset	Role	Initial collection
+WikiArt	Training, validation, and held-out testing	103,250 images
+The Met	Museum evaluation	2,214 paintings
+Rijksmuseum	Museum evaluation	4,695 paintings
 
-## Overview
 
-Art-style classifiers are usually trained and tested on WikiArt, where they score well. But museums, art apps, and search tools want to use these models on their own collections, and museum images are different: different cameras, lighting, color, and cropping. A model can score high in testing and still fail when the data source changes. This is called a **domain gap**.
+WikiArt data came from the Artificio/WikiArt_Full dataset. Met paintings came from the European Paintings and Lehman Collection. Rijksmuseum paintings came from the SK collection, accessed through its Search API and IIIF.
 
-This project measures how big that gap is for art-style classification, and whether a small amount of museum data can close it.
+The project did not use a common 27-style WikiArt release because 58% of its images have an unknown artist, making an artist-disjoint split difficult.
+Data Preparation
+The WikiArt collection was filtered to remove 4,294 images that were not paintings, 2,661 black-and-white images, and 425 near-duplicates.
 
-## Research Questions
+Museum style labels were derived from Wikidata movement labels, painter movements, and rules for regional schools and historical periods. Copies identified as “after” an artist were not assigned that artist’s movement. Works without a reliable movement label after 1780 were left unlabeled.
 
-1. **How much does performance drop** when a model trained on WikiArt is tested on images from the Metropolitan Museum of Art (the Met) and the Rijksmuseum?
-2. **Does a museum fix transfer?** If the model is fine-tuned with a few images from one museum, does the improvement carry over to the other museum?
+A random review of 100 museum labels, with 50 from each museum, found 94 labels correct. For artists appearing in both WikiArt and a museum collection, 20 of 23 reviewed labels agreed with WikiArt.
 
-## Data Sources
+The project also removed likely overlaps between WikiArt and museum collections: 446 Met paintings and 282 Rijksmuseum paintings. A visual review of 60 removed pairs found that 46 showed the same painting or another version of it.
 
-| | WikiArt | The Met | Rijksmuseum |
-|---|---|---|---|
-| Role | Training | Test | Test |
-| What it stores | Image + style label | Title, artist, date, object type | Title, artist, date, object type |
-| Style label? | Yes | No, must be derived | No, must be derived |
+Six styles had enough examples across all three datasets to meet the project’s minimum counts:
+Style	WikiArt	Met	Rijksmuseum
+Northern Renaissance	1,769	192	106
+Mannerism	1,238	62	73
+Baroque	4,165	398	2,128
+Rococo	2,501	166	472
+Romanticism	7,820	53	38
+Realism	8,651	113	291
 
-The Met images come from the Met Open Access collection. The Rijksmuseum images come from its public collection data.
 
-## Data Preparation
+The WikiArt split contains 18,501 training images, 3,786 validation images, and 3,857 test images, with no artists shared between splits. The museum test sets contain 984 Met paintings and 3,107 Rijksmuseum paintings.
+Models and Experiments
+The main baseline is a ResNet-50 initialized with ImageNet weights and fine-tuned on WikiArt. It was trained with three random seeds. Chance and majority-class baselines provide comparison floors.
 
-### WikiArt
+The project also plans CLIP and DINOv2 linear probes, CORAL domain adaptation, and few-shot experiments using 5, 10, 25, or 50 museum images per style. The few-shot tests will run in both directions: Met to Rijksmuseum and Rijksmuseum to Met.
 
-- Started with about **42,500 images in 13 style folders**.
-- Checked class balance, image sizes, and color modes. Classes are unbalanced: Romanticism has about 6,800 images and Western Medieval about 1,150.
-- Removed **115 exact duplicate** images, and found **one label conflict** (the same image under Art Nouveau and Expressionism; both styles are dropped from the final set).
-- Converted all images to RGB and resized them to one input size.
-- Reduced the styles from 13 to **10 museum-friendly styles**, chosen before any model training:
-  Early Renaissance, High Renaissance, Northern Renaissance, Mannerism, Baroque, Rococo, Romanticism, Realism, Impressionism, Post-Impressionism.
+The ablations test whether image characteristics explain the performance gap. So far, they have changed color normalization, resolution, cropping, JPEG quality, and grayscale. These preliminary ablations use one trained model, seed 2. Results for seeds 1 and 3 are still to come.
+Preliminary Results
+Test set	Paintings	Balanced accuracy	Macro-F1
+WikiArt test	3,857	61.1 ± 1.3%	59.7 ± 1.3%
+The Met	984	59.8 ± 1.0%	57.5 ± 1.7%
+Rijksmuseum	3,107	57.5 ± 0.2%	45.9 ± 1.5%
 
-The cleaning checks were first tested on a balanced sample of **3,000 images (300 per style)**. That sample had no broken files, no duplicates, and no conflicting labels. It also showed two hidden problems:
 
-- **Black-and-white images:** 209 of the 3,000 are black-and-white, and 91 of those are Northern Renaissance (likely prints and engravings). A model could learn the shortcut "black-and-white means Northern Renaissance." This is tested with a grayscale ablation.
-- **Unknown artists:** about 53% of sampled images are labeled "Unknown Artist." This affects the artist-disjoint split (see below).
+The results average three seeds and include standard deviations. Because Baroque makes up a large share of the Rijksmuseum set, plain accuracy can be misleading. Always predicting Baroque gives 68.5% plain accuracy there, but only 16.7% balanced accuracy.
 
-### Museum Style Labels
+For artists absent from WikiArt training, balanced accuracy was 61.1% on WikiArt, 56.3% at the Met, and 57.7% at the Rijksmuseum. The Met difference was statistically significant (p = 0.03). The Rijksmuseum difference was not (p = 0.08). At the Met, paintings by artists seen during training scored about 13 points higher, suggesting that the model partly recognizes painters.
+Early Ablation Results
+The ablation results show changes in balanced accuracy, in percentage points, compared with normal images:
+Image change	WikiArt	Met	Rijksmuseum
+Center crop	—	+0.6	+0.5
+512-pixel images	—	0.0	+0.1
+Color matched to WikiArt	−4.7	−3.5	−4.6
+JPEG quality 50	−8.1	−4.5	−1.1
+Grayscale	−8.3	−7.0	−4.2
 
-The museums do not label paintings by style, so labels are derived:
 
-1. **Paintings only.** Prints, drawings, sculpture, and other objects are removed, so failures come from style and not object type.
-2. **Wikidata movements.** Each painting's art movement from Wikidata is mapped to the 10 styles.
-3. **Date rule.** General labels like "Italian Renaissance" are split by date: before 1490 is Early Renaissance, 1490 to 1530 is High Renaissance. Later paintings are dropped.
-4. **Hand-check.** A sample of 50 derived labels is checked by eye.
-
-| Museum | Paintings found | With a reliable style label |
-|---|---|---|
-| The Met | 13,051 | 2,009 |
-| Rijksmuseum | 5,827 | 1,610 |
-
-Paintings without a reliable label are left out rather than guessed.
-
-Only **four styles have at least 50 paintings in both museums**: Realism, Baroque, Romanticism, and Rococo. These four form the main cross-museum test. The Met is also tested on its eight usable styles as an extra result.
-
-At the Rijksmuseum, Baroque is about 55% of labeled paintings, so a model that always guesses Baroque would score about 55%. A majority-class baseline is always reported next to results.
-
-### Leakage Checks
-
-- **Artist-disjoint split:** each artist appears in only one of training, validation, or test. The final split uses known-artist images only.
-- **Overlap removal:** paintings that appear in both WikiArt and a museum collection are removed, so the model is never tested on a painting it saw in training.
-
-## Models
-
-| Level | Model | Purpose |
-|---|---|---|
-| 1 | Chance and majority class | Floors any real model must beat |
-| 2 | Color-feature baseline | Simple non-deep-learning reference |
-| 3 | ResNet-50 (transfer learning from ImageNet) | Main model, fine-tuned on WikiArt |
-| 4 | CLIP and DINOv2 | Newer models trained on larger, more varied data |
-
-## Preliminary Result: Color Baseline
-
-On the 10-style, 3,000-image sample:
-
-| Setting | Accuracy |
-|---|---|
-| Chance | 10.0% |
-| Artist-disjoint split | 20.9% |
-| Random split | 25.8% |
-
-Color alone beats chance, so color carries some style information. But accuracy drops when artists are kept apart, so part of the random-split score came from recognizing artists, not styles. For this reason, all experiments use an artist-disjoint split.
-
-## Experiments
-
-**Experiment 1 (RQ1):** Train and test on WikiArt to get the best-case score. Then test the same model on the Met and the Rijksmuseum with no changes. The drop is the domain gap.
-
-**Experiment 2 (RQ2):** Fine-tune with 5 to 50 museum images per style and test on the other museum, in both directions (Met to Rijksmuseum, Rijksmuseum to Met). This produces a few-shot curve.
-
-**Why the gap happens:** Ablations change one thing at a time, such as training with grayscale images. AdaBN adjusts the model to a new image source without new labels.
-
-## Evaluation
-
-- Top-1 and top-3 accuracy
-- Macro F1 (treats every style equally)
-- Per-style results and confusion matrices
-- Three random seeds per experiment, with confidence intervals
-- Calibration (does the model's confidence match its accuracy?)
-
-## Limitations
-
-- Style labels are imperfect; experts sometimes disagree on a painting's style.
-- Most museum paintings have no reliable style label, so museum test sets are small.
-- The main cross-museum test covers only four shared styles.
-
-## Status
-
-**Done**
-- WikiArt cleaning and duplicate checks
-- Style reduction from 13 to 10
-- Museum style mapping and per-style counts
-- Color baseline
-
-**Next**
-- Finish the 50-label hand-check
-- Run cleaning checks on the full dataset
-- Build the final artist-disjoint split and remove overlapping paintings
-- Train ResNet-50, then run the museum tests and the few-shot curve
-
-## Setup
-
-The project uses Python in a virtual environment.
-
-```bash
-git clone https://github.com/abdull254/wikiart-museum-style.git
-cd wikiart-museum-style
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-The WikiArt dataset is not included in this repository because of its size. Download it separately and place it in the data folder used by the scripts.
-
-## Contact
-
-Abdullahi Jimale
-[LinkedIn](https://www.linkedin.com/in/jimale1) · [GitHub](https://github.com/abdull254)
+Center cropping and higher resolution had little effect. Color matching lowered results across all three sets, and grayscale reduced performance on WikiArt as well as on the museum sets. These early findings suggest that color carries useful style information, while the tested image-quality changes do not explain much of the museum performance gap. The ablation results need confirmation across the remaining seeds.
+Evaluation
+The project reports balanced accuracy, macro-F1, per-style results, confusion matrices, and expected calibration error. Baseline results use three random seeds with bootstrap confidence intervals.
+Limitations
+- Museum images are professional digitizations, not gallery photographs.
+- Style labels come from Wikidata and date rules. The review found six incorrect labels in a sample of 100.
+- Romanticism and Mannerism have relatively few museum examples.
+- The main evaluation includes two Western museums.
+- The current ablation results come from one trained model. CLIP may also have encountered some paintings during pretraining.
+Project Status
+Completed
+- Collected and cleaned the three datasets
+- Removed WikiArt–museum overlaps and visually checked a sample
+- Derived museum labels and reviewed 100 examples
+- Created an artist-disjoint WikiArt split
+- Ran the three-seed ResNet-50 baseline
+- Ran preliminary image ablations on one seed
+Next steps
+- Run the ablations on seeds 1 and 3, including grayscale training
+- Complete the few-shot transfer curve in both directions
+- Evaluate CORAL, CLIP, and DINOv2
+- Analyze model errors and tighten artist-name matching
+- Complete the related-work review
